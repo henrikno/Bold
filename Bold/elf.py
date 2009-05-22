@@ -5,7 +5,6 @@
 # Copyright (C) 2009 Amand 'alrj' Tihon <amand.tihon@alrj.org>
 #
 # This file is part of bold, the Byte Optimized Linker.
-# Heavily inspired by elf.h from the GNU C Library.
 #
 # You can redistribute this file and/or modify it under the terms of the
 # GNU Lesser General Public License as published by the Free Software
@@ -14,6 +13,7 @@
 
 from BinArray import BinArray
 from constants import *
+from errors import *
 import struct
 
 # Helpful decorator
@@ -44,6 +44,8 @@ class Elf64(object):
     if path:
       self.fromfile(path)
 
+  # Functions for relocatables files used as input
+
   def fromfile(self, path):
     f = file(path, "rb")
 
@@ -51,6 +53,16 @@ class Elf64(object):
     data = BinArray()
     data.fromfile(f, Elf64_Ehdr.size)
     self.header.fromBinArray(data)
+
+    # This linker only supports relocatable objects
+    if self.header.e_type != ET_REL:
+      raise NotRelocatableObject(path)
+
+    if self.header.e_ident.ei_class != ELFCLASS64:
+      raise UnsupportedObject(path, "Not %s" % ELFCLASS64)
+
+    if self.header.e_machine != EM_X86_64:
+      raise UnsupportedObject(path, "Not %s" % EM_X86_64)
 
     # Load sections headers
     f.seek(self.header.e_shoff)
@@ -123,7 +135,6 @@ class Elf64(object):
         if reloc.symbol.st_shndx == SHN_UNDEF:
           # This is an extern symbol, find it in all_global_symbols
           sym_address = all_global_symbols[reloc.symbol.name]
-          print "0x%x" % sym_address
         else:
           # source == in which section it is defined
           source = self.shdrs[reloc.symbol.st_shndx].content
@@ -162,6 +173,8 @@ class Elf64(object):
         end = start + len(d)
         target_ba[start:end] = d
 
+
+  # Functions for executables files, as output
 
   def add_phdr(self, phdr):
     self.phdrs.append(phdr)
@@ -206,7 +219,7 @@ class Elf64_eident(object):
 
   def __init__(self, rawdata=None):
     object.__init__(self)
-    if rawdata:
+    if rawdata is not None:
       self.fromBinArray(rawdata)
 
   def fromBinArray(self, rawdata):
@@ -262,7 +275,7 @@ class Elf64_Ehdr(object):
     self.e_shentsize = Elf64_Shdr.size
     self.e_shnum = 0
     self.e_shstrndx = 0
-    if rawdata:
+    if rawdata is not None:
       self.fromBinArray(rawdata)
 
   def fromBinArray(self, rawdata):
@@ -309,7 +322,7 @@ class Elf64_Shdr(object):
   def __init__(self, index=None, rawdata=None):
     object.__init__(self)
     self.index = index
-    if rawdata:
+    if rawdata is not None:
       self.fromBinArray(rawdata)
 
   def fromBinArray(self, rawdata):
@@ -346,7 +359,7 @@ class Elf64_Sym(object):
   entsize = struct.calcsize(format)
   def __init__(self, rawdata=None):
     object.__init__(self)
-    if rawdata:
+    if rawdata is not None:
       self.fromBinArray(rawdata)
 
   @nested_property
@@ -388,7 +401,7 @@ class Elf64_Rel(object):
   def __init__(self, rawdata=None):
     object.__init__(self)
     self.r_addend = 0 # No addend in a Rel.
-    if rawdata:
+    if rawdata is not None:
       self.fromBinArray(rawdata)
 
   def fromBinArray(sef, rawdata):
@@ -441,6 +454,10 @@ class Elf64_Dyn(object):
       self.d_val = value
     return locals()
 
+  def toBinArray(self):
+    ba = BinArray()
+    ba.fromstring(struct.pack(self.format, self.d_tag, self.d_val))
+    return ba
 
 # Sections types :
 
@@ -467,15 +484,15 @@ def Section(shdr, data=None):
 
 
 class BaseSection(object):
-  def __init__(self, shdr, data=None):
+  def __init__(self, shdr, rawdata=None):
     object.__init__(self)
     self.data = None
     self.header = shdr
-    if data:
-      self.fromBinArray(data)
+    if rawdata is not None:
+      self.fromBinArray(rawdata)
 
-  def fromBinArray(self, data):
-    self.data = data
+  def fromBinArray(self, rawdata):
+    self.data = rawdata
 
   def toBinArray(self):
     if self.data:
@@ -535,9 +552,44 @@ class SSymtab(BaseSection):
 
 
 class SStrtab(BaseSection):
-  def __init__(self, shdr, data=None):
+  """This one behaves in two completely different ways.
+  If it's given a section header and data, it will act as read-only, only to
+  be used for name resolution.
+  If it's not given any argument, it can be used to create a new Strtab."""
+  def __init__(self, shdr=None, data=None):
+    self.readonly = (shdr is not None)
     self.strtab = {}
+    self.table = []
     BaseSection.__init__(self, shdr, data)
+    self.virt_addr = None
+
+  def toBinArray(self):
+    if self.readonly:
+      return BaseSection.toBinArray()
+
+    ba = BinArray()
+    keys = self.strtab.keys()
+    keys.sort()
+    for k in keys:
+      ba.fromstring(self.strtab[k] + "\0")
+    return ba
+
+  @nested_property
+  def size():
+    def fget(self):
+      if self.readonly:
+        return len(data)
+      if len(self.strtab) == 0:
+        return 0
+      return sum((len(x)+1 for x in self.strtab.values()))
+    return locals()
+  physical_size = size
+  logical_size = size
+
+  def iteritems(self):
+    return self.strtab.iteritems()
+
+  # Resolution functions
 
   def fromBinArray(self, data):
     BaseSection.fromBinArray(self, data)
@@ -555,8 +607,19 @@ class SStrtab(BaseSection):
       self.strtab[key] = v
       return v
 
-  def iteritems(self):
-    return self.strtab.iteritems()
+  # Executable creation functions
+
+  def append(self, string):
+    if len(self.strtab) == 0:
+      offset = 0
+    else:
+      last = max(self.strtab.keys())
+      offset = last + len(self.strtab[last]) + 1 # for the \0
+    self.strtab[offset] = string
+    return offset
+
+  def layout(self):
+    pass
 
 
 class SRela(BaseSection):
@@ -581,8 +644,8 @@ class SRela(BaseSection):
     self.header.target = elf.shdrs[self.header.sh_info]
     for r in self.relatab:
       r.symbol = self.symtab[r.r_sym]
-      
-    
+
+
 
 class SHash(BaseSection):
   pass
@@ -637,8 +700,6 @@ class Elf64_Phdr(object):
     self.p_filesz = 0
     self.p_memsz = 0
     self.p_align = 1
-    #self.content = []
-    #self.nobits = []
 
   def toBinArray(self):
     res = struct.pack(self.format, self.p_type, self.p_flags, self.p_offset,
@@ -648,17 +709,13 @@ class Elf64_Phdr(object):
   def layout(self):
     pass
 
-  #def add_content(self, content):
-  #  self.content.append(content)
-
-  #def add_empty_content(self, content):
-  #  self.nobits.append(content)
-
-  #@nested_property
-  #def content_size():
-  #  def fget(self):
-  #    return sum(s.sh_size for s in self.content)
-  #  return locals()
+  def update_from_content(self, content):
+    """ Update ofset, address and sizes.
+    After having applied layout(),the content knows all these values."""
+    self.p_offset = content.file_offset
+    self.p_vaddr = content.virt_addr
+    self.p_filesz = content.physical_size
+    self.p_memsz = content.logical_size
 
 
 class BaseSegment(object):
@@ -730,46 +787,11 @@ class DataSegment(BaseSegment):
     return locals()
 
 
-
-class PStrtab(object):
-  def __init__(self):
-    object.__init__(self)
-    self.table = []
-    self.virt_addr = None
-
-  def append(self, string):
-    if len(self.table):
-      offset = self.table[-1][0]
-      offset += len(self.table[-1][1])
-    else:
-      offset = 0
-    new_str = string + '\0'
-    self.table.append((offset, new_str))
-    return offset
-
-  @nested_property
-  def size():
-    def fget(self):
-      return (self.table[-1][0] + len(self.table[-1][1]))
-    return locals()
-  physical_size = size
-  logical_size = size
-
-  def toBinArray(self):
-    ba = BinArray()
-    for s in (i[1] for i in self.table):
-      ba.fromstring(s)
-    return ba
-
-  def layout(self):
-    pass
-
-
 class Dynamic(object):
   def __init__(self):
     object.__init__(self)
     self.dyntab = []
-    self.strtab = PStrtab()
+    self.strtab = SStrtab()
 
   @nested_property
   def size():
@@ -782,13 +804,13 @@ class Dynamic(object):
 
   def add_shlib(self, shlib):
     offset = self.strtab.append(shlib)
-    self.dyntab.append((DT_NEEDED, offset))
+    self.dyntab.append(Elf64_Dyn(DT_NEEDED, offset))
 
   def add_symtab(self, vaddr):
-    self.dyntab.append((DT_SYMTAB, vaddr))
+    self.dyntab.append(Elf64_Dyn(DT_SYMTAB, vaddr))
 
   def add_debug(self):
-    self.dyntab.append((DT_DEBUG, 0))
+    self.dyntab.append(Elf64_Dyn(DT_DEBUG, 0))
 
   def layout(self):
     # Adjust the address of the strtab, if 
@@ -796,22 +818,21 @@ class Dynamic(object):
       print "Ooops, strtab's address is not known yet. Aborting."
       exit(1)
     else:
-      self.dyntab.append((DT_STRTAB, self.strtab.virt_addr))
+      self.dyntab.append(Elf64_Dyn(DT_STRTAB, self.strtab.virt_addr))
 
   @nested_property
   def dt_debug_address():
     def fget(self):
       for i, d in enumerate(self.dyntab):
-        if d[0] == DT_DEBUG:
-          return self.virt_addr + (i*16 + 8)
+        if d.d_tag == DT_DEBUG:
+          return self.virt_addr + (i*d.size + (d.size/2))
     return locals()
-    
+
 
   def toBinArray(self):
     ba = BinArray()
-    for i in self.dyntab:
-      s = struct.pack("<2Q", i[0], i[1])
-      ba.fromstring(s)
+    for d in self.dyntab:
+      ba.extend(d.toBinArray())
     null = struct.pack("<Q", DT_NULL)
     ba.fromstring(null)
     return ba
@@ -843,3 +864,4 @@ class Interpreter(object):
 
   def layout(self):
     pass
+
