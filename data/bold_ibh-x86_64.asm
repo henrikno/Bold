@@ -36,8 +36,8 @@ _bold__ibh:
   mov rbx, [rbx + 24]                   ; skip the first two link_map entries
   mov rbx, [rbx + 24]
 
-  mov esi, [rel _bold__functions_hash]        ; Implicitly zero-extended
-  mov edi, [rel _bold__functions_pointers]    ; ditto
+  mov esi, _bold__functions_hash        ; Implicitly zero-extended
+  mov edi, _bold__functions_pointers    ; ditto
   mov ecx, _bold__functions_count
 
   ; Load all the symbols
@@ -87,18 +87,13 @@ _bold__ibh:
 
         ; Compute the hash
         xor edx, edx
+        xor eax, eax
         .hash_loop:                       ; over each char
-          xor eax, eax
+          imul edx, edx, byte 0x21
+          xor edx, eax
           lodsb
           test al, al
-          jz .hash_end
-
-          sub eax, edx
-          shl edx, 6
-          add eax, edx
-          shl edx, 10
-          add edx, eax
-          jmp short .hash_loop
+          jnz short .hash_loop
 
         .hash_end:
         cmp edx, r15d                     ; Compare with stored hash

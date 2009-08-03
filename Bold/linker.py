@@ -26,7 +26,7 @@ def hash_name(name):
   """Caculate the hash of the function name."""
   h = 0
   for c in name:
-    h = (ord(c) - h + (h << 6) + (h << 16) & 0xffffffff)
+    h = ((h * 0x21) ^ ord(c)) & 0xffffffff
   return h
 
 class BoldLinker(object):
