@@ -10,9 +10,6 @@
 # GNU Lesser General Public License as published by the Free Software
 # Foundation, version 2.1.
 
-#from bold.constants import *
-#from bold.elf import Elf64, Elf64_Phdr, TextSegment, DataSegment, Dynamic, Interpreter
-
 __author__ = "Amand Tihon <amand.tihon@alrj.org>"
 __version__ = "0.0.1"
 
@@ -35,33 +32,33 @@ intended to create very small executables with the least possible overhead."""
       version=self._version_message, description=self._description_message,
       add_help_option=True, prog="bold")
 
-    self.set_defaults(entry="_start", outfile="a.out")
+    self.set_defaults(entry="_start", outfile="a.out", raw=False, ccall=False)
 
     self.add_option("-e", "--entry", action="store", dest="entry",
       metavar="SYMBOL", help="Set the entry point (default: _start)")
+
     self.add_option("-l", "--library", action="append", dest="shlibs",
       metavar="LIBNAME", help="Search for library LIBNAME")
+
     self.add_option("-o", "--output", action="store", dest="outfile",
       metavar="FILE", help="Set output file name (default: a.out)")
+
+    self.add_option("--raw", action="store_true", dest="raw",
+      help="Don't include the symbol resolution code (default: include it)")
+
+    self.add_option("-c", "--ccall", action="store_true", dest="ccall",
+      help="Make external symbol callable by C (default: no)")
 
 
 def main():
   parser = BoldOptionParser()
   options, args = parser.parse_args()
 
-  linker = BoldLinker()
-
-  if options.shlibs:
-    for shlib in options.shlibs:
-      try:
-        linker.add_shlib(shlib)
-      except LibNotFound, e:
-        print >>sys.stderr, e
-        return 1
-
   if not args:
     print >>sys.stderr, "No input files"
     return 1
+
+  linker = BoldLinker()
 
   for infile in args:
     try:
@@ -73,9 +70,42 @@ def main():
       print >>sys.stderr, e
       return 1
 
+  if options.ccall and options.raw:
+    # ccall implies that we include the symbol resolution code...
+    print >>sys.stderr, "Including symbol resolution code because of -c."
+    options.raw = False
+
+  if not options.raw:
+    for d in ['data', '/usr/lib/bold/', '/usr/local/lib/bold', '.']:
+      f = os.path.join(d, 'bold_ibh-x86_64.o')
+      try:
+        linker.add_object(f)
+        break
+      except UnsupportedObject, e:
+        # file was found, but is not recognized
+        print >>sys.stderr, e
+        return 1
+      except IOError, e:
+        # not found, try next directory
+        pass
+    else:
+      print >>sys.stderr, "Could not find boldsymres-x86_64.o."
+      return 1
+
+  if options.shlibs:
+    for shlib in options.shlibs:
+      try:
+        linker.add_shlib(shlib)
+      except LibNotFound, e:
+        print >>sys.stderr, e
+        return 1
+
   linker.entry_point = options.entry
 
   try:
+    linker.build_symbols_tables()
+    linker.build_external(with_jump=options.ccall)
+
     linker.link()
   except UndefinedSymbol, e:
     print >>sys.stderr, e

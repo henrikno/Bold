@@ -15,9 +15,19 @@ Main entry point for the bold linker.
 """
 
 from constants import *
-from elf import Elf64, Elf64_Phdr, TextSegment, DataSegment, Dynamic, Interpreter
+from BinArray import BinArray
+from elf import Elf64, Elf64_Phdr, Elf64_Shdr, TextSegment, DataSegment
+from elf import SStrtab, SSymtab, SProgBits, SNobits, Dynamic, Interpreter
 from errors import *
 from ctypes.util import find_library
+import struct
+
+def hash_name(name):
+  """Caculate the hash of the function name."""
+  h = 0
+  for c in name:
+    h = (ord(c) - h + (h << 6) + (h << 16) & 0xffffffff)
+  return h
 
 class BoldLinker(object):
   """A Linker object takes one or more objects files, optional shared libs,
@@ -37,6 +47,8 @@ class BoldLinker(object):
     self.shlibs = []
     self.entry_point = "_start"
     self.output = Elf64()
+    self.global_symbols = {}
+    self.undefined_symbols = set()
 
   def add_object(self, filename):
     """Add a relocatable file as input."""
@@ -44,6 +56,137 @@ class BoldLinker(object):
     obj.resolve_names()
     obj.find_symbols()
     self.objs.append(obj)
+
+  def build_symbols_tables(self):
+    """Find out the globally available symbols, as well as the globally
+    undefined ones (which should be found in external libraries."""
+
+    # Gather the "extern" symbols from each input files.
+    for i in self.objs:
+      self.undefined_symbols.update(i.undefined_symbols)
+
+    # Make a dict with all the symbols declared globally.
+    # Key is the symbol name, value will later be set to the final
+    # virtual address. Currently, we're only interrested in the declaration.
+    # The virtual addresses are set to None, they'll be resolved later.
+    for i in self.objs:
+      for s in i.global_symbols:
+        if s in self.global_symbols:
+          raise RedefinedSymbol(s)
+        self.global_symbols[s] = None
+
+    # Add a few useful symbols. They'll be resolved ater as well.
+    self.global_symbols["_dt_debug"] = None
+    self.global_symbols["_DYNAMIC"] = None
+
+    # Find out which symbols aren't really defined anywhere
+    self.undefined_symbols.difference_update(self.global_symbols)
+
+
+  def build_external(self, with_jump=False, align_jump=True):
+    """
+    Generate a fake relocatable object, for dynamic linking.
+    """
+
+    # Find out all the undefined symbols. They're the one we'll need to resolve
+    # dynamically.
+    symbols = sorted(list(self.undefined_symbols))
+
+    # Those three will soon be known...
+    symbols.remove('_bold__functions_count')
+    symbols.remove('_bold__functions_hash')
+    symbols.remove('_bold__functions_pointers')
+
+    # Create the fake ELF object.
+    fo = Elf64() # Don't care about most parts of ELF header (?)
+    fo.filename = "Internal dynamic linker"
+
+    # We need a .data section, a .bss section and a possibly a .text section
+    data_shdr = Elf64_Shdr()
+    data_shdr.sh_type = SHT_PROGBITS
+    data_shdr.sh_flags = (SHF_WRITE | SHF_ALLOC)
+    data_shdr.sh_size = len(symbols) * 4
+    fmt = "<" + "I" * len(symbols)
+    data_shdr.content = BinArray(struct.pack(fmt, *[hash_name(s) for s in symbols]))
+    fo.shdrs.append(data_shdr)
+    fo.sections['.data'] = data_shdr
+
+    bss_shdr = Elf64_Shdr()
+    bss_shdr.sh_type = SHT_NOBITS
+    bss_shdr.sh_flags = (SHF_WRITE | SHF_ALLOC)
+    bss_shdr.sh_size = len(symbols) * 8
+    bss_shdr.content = BinArray("")
+    fo.shdrs.append(bss_shdr)
+    fo.sections['.bss'] = bss_shdr
+
+    if with_jump:
+      text_shdr = Elf64_Shdr()
+      text_shdr.sh_type = SHT_PROGBITS
+      text_shdr.sh_flags = (SHF_ALLOC | SHF_EXECINSTR)
+      text_shdr.sh_size = len(symbols) * 8
+      if align_jump:
+        fmt = '\xff\x25\x00\x00\x00\x00\x00\x00' # ff 25 = jmp [rel label]
+        jmp_size = 8
+      else:
+        fmt = '\xff\x25\x00\x00\x00\x00'
+        jmp_size = 6
+      text_shdr.content = BinArray(fmt * len(symbols))
+      fo.shdrs.append(text_shdr)
+      fo.sections['.text'] = text_shdr
+
+    # Cheating here. All symbols declared as global so we don't need to create
+    # a symtab from scratch.
+    fo.global_symbols = {}
+    fo.global_symbols['_bold__functions_count'] = (SHN_ABS, len(symbols))
+    fo.global_symbols['_bold__functions_hash'] = (data_shdr, 0)
+    fo.global_symbols['_bold__functions_pointers'] = (bss_shdr, 0)
+
+    for n, i in enumerate(symbols):
+      # The hash is always in .data
+      h = "_bold__hash_%s" % i
+      fo.global_symbols[h] = (data_shdr, n * 4) # Section, offset
+
+      if with_jump:
+        # the symbol is in .text, can be called directly
+        fo.global_symbols[i] = (text_shdr, n * jmp_size)
+        # another symbol can be used to reference the pointer, just in case.
+        p = "_bold__%s" % i
+        fo.global_symbols[p] = (bss_shdr, n * 8)
+
+      else:
+        # The symbol is in .bss, must be called indirectly
+        fo.global_symbols[i] = (bss_shdr, n * 8)
+
+    if with_jump:
+      # Add relocation entries for the jumps
+      # Relocation will be done for the .text, for every jmp instruction.
+      class dummy: pass
+      rela_shdr = Elf64_Shdr()
+      rela_shdr.sh_type = SHT_RELA
+      # rela_shdr.sh_info = fo.shdrs.index(text_shdr)
+      rela_shdr.target = text_shdr
+      rela_shdr.sh_flags = 0
+      rela_shdr._content = dummy() # We only need a container for relatab...
+      relatab = []                      # Prepare a relatab
+      rela_shdr.content.relatab = relatab
+
+      for n, i in enumerate(symbols):
+        # Create a relocation entry for each symbol
+        reloc = dummy()
+        reloc.r_offset = (n * jmp_size) + 2   # Beginning of the cell to update
+        reloc.r_addend = -4
+        reloc.r_type = R_X86_64_PC32
+        reloc.symbol = dummy()
+        reloc.symbol.st_shndx = SHN_UNDEF
+        reloc.symbol.name = "_bold__%s" % i
+        # reloc.symbol.st_value = 0
+        relatab.append(reloc)
+      fo.shdrs.append(rela_shdr)
+      fo.sections['.rela.text'] = rela_shdr
+
+    # Ok, let's add this fake object
+    self.objs.append(fo)
+
 
   def add_shlib(self, libname):
     """Add a shared library to link against."""
@@ -145,47 +288,37 @@ class BoldLinker(object):
     ph_interp.update_from_content(interp)
     ph_dynamic.update_from_content(dynamic)
 
-
-    # Gather the undefined symbols from all input files
-    undefined_symbols = set()
-    for i in self.objs:
-      undefined_symbols.update(i.undefined_symbols)
-
-    # Make a dict with all the symbols declared globally.
-    # Key is the symbol name, value is the final virtual address
-    global_symbols = {}
-
+    # All parts are at their final address, find out the symbols' addresses
     for i in self.objs:
       for s in i.global_symbols:
-        if s in global_symbols:
-          raise RedefinedSymbol(s)
         # Final address is the section's base address + the symbol's offset
-        addr = i.global_symbols[s][0].content.virt_addr
-        addr += i.global_symbols[s][1]
-        global_symbols[s] = addr
+        if i.global_symbols[s][0] == SHN_ABS:
+          addr = i.global_symbols[s][1]
+        else:
+          addr = i.global_symbols[s][0].content.virt_addr
+          addr += i.global_symbols[s][1]
 
-    # Add a few useful symbols
-    global_symbols["_dt_debug"] = dynamic.dt_debug_address
-    global_symbols["_DYNAMIC"] = dynamic.virt_addr
+        self.global_symbols[s] = addr
 
-    # Find out which symbols aren't really defined anywhere
-    undefined_symbols.difference_update(global_symbols)
+    # Resolve the few useful symbols
+    self.global_symbols["_dt_debug"] = dynamic.dt_debug_address
+    self.global_symbols["_DYNAMIC"] = dynamic.virt_addr
 
     # For now, it's an error. Later, we could try to find them in the shared
     # libraries.
-    if len(undefined_symbols):
-      raise UndefinedSymbol(undefined_symbols.pop())
+    #if len(self.undefined_symbols):
+    #  raise UndefinedSymbol(self.undefined_symbols.pop())
 
 
 
     # We can now do the actual relocation
     for i in self.objs:
-      i.apply_relocation(global_symbols)
+      i.apply_relocation(self.global_symbols)
 
     # And update the ELF header with the entry point
-    if not self.entry_point in global_symbols:
+    if not self.entry_point in self.global_symbols:
       raise UndefinedSymbol(self.entry_point)
-    self.output.header.e_entry = global_symbols[self.entry_point]
+    self.output.header.e_entry = self.global_symbols[self.entry_point]
 
     # DONE !
 

@@ -42,6 +42,7 @@ class Elf64(object):
     self.undefined_symbols = []
 
     if path:
+      self.filename = path
       self.fromfile(path)
 
   # Functions for relocatables files used as input
@@ -131,7 +132,6 @@ class Elf64(object):
       target = sh.target.content
 
       for reloc in sh.content.relatab:
-        
         if reloc.symbol.st_shndx == SHN_UNDEF:
           # This is an extern symbol, find it in all_global_symbols
           sym_address = all_global_symbols[reloc.symbol.name]
@@ -558,7 +558,8 @@ class SStrtab(BaseSection):
   If it's not given any argument, it can be used to create a new Strtab."""
   def __init__(self, shdr=None, data=None):
     self.readonly = (shdr is not None)
-    self.strtab = {}
+    self.by_index = {}
+    self.by_name = {}
     self.table = []
     BaseSection.__init__(self, shdr, data)
     self.virt_addr = None
@@ -568,26 +569,24 @@ class SStrtab(BaseSection):
       return BaseSection.toBinArray()
 
     ba = BinArray()
-    keys = self.strtab.keys()
+    keys = self.by_index.keys()
     keys.sort()
     for k in keys:
-      ba.fromstring(self.strtab[k] + "\0")
+      ba.fromstring(self.by_index[k] + "\0")
     return ba
 
   @nested_property
   def size():
     def fget(self):
-      if self.readonly:
-        return len(data)
-      if len(self.strtab) == 0:
+      if len(self.by_index) == 0:
         return 0
-      return sum((len(x)+1 for x in self.strtab.values()))
+      return len(self.data)
     return locals()
   physical_size = size
   logical_size = size
 
   def iteritems(self):
-    return self.strtab.iteritems()
+    return self.by_index.iteritems()
 
   # Resolution functions
 
@@ -596,26 +595,40 @@ class SStrtab(BaseSection):
     itab = data.tostring().split('\0')
     i = 0
     for sname in itab:
-      self.strtab[i] = sname
+      self.by_index[i] = sname
+      self.by_name[sname] = i
       i += len(sname) + 1
 
   def __getitem__(self, key):
-    if key in self.strtab:
-      return self.strtab[key]
+    if isinstance(key, int):
+      # Find string by index
+      if key in self.by_index:
+        # Already computed, return it
+        return self.by_index[key]
+      else:
+        # It references a substring
+        v = self.data[key:].tostring().split('\0')[0]
+        self.by_index[key] = v
+        self.by_name[v] = key
+        return v
     else:
-      v = self.data[key:].tostring().split('\0')[0]
-      self.strtab[key] = v
-      return v
+      # find index by name
+      if key in self.by_name:
+        return self.by_name[key]
+      else:
+        raise KeyError(key)
 
   # Executable creation functions
 
-  def append(self, string):
-    if len(self.strtab) == 0:
+  def append(self, identifier):
+    if len(self.by_name) == 0:
       offset = 0
     else:
-      last = max(self.strtab.keys())
-      offset = last + len(self.strtab[last]) + 1 # for the \0
-    self.strtab[offset] = string
+      last = max(self.by_index.keys())
+      offset = last + len(self.by_index[last]) + 1 # for the \0
+    self.by_index[offset] = identifier
+    self.by_name[identifier] = offset
+    self.data = self.toBinArray()
     return offset
 
   def layout(self):
@@ -671,6 +684,7 @@ class SNobits(BaseSection):
 
   def toBinArray(self):
     return BinArray()
+
 
 class SRel(BaseSection):
   pass
@@ -839,9 +853,22 @@ class Dynamic(object):
 
 
 class Interpreter(object):
+  """
+  Pseudo-section containing the null terminated string referencing the
+  interpreter to use.
+
+  @ivar size: Read-only attribute, size of the null terminated string.
+  @ivar logical_size: alias to size
+  @ivar physical_size: alias to size
+  """
   default_interpreter = "/lib64/ld-linux-x86-64.so.2"
 
   def __init__(self, interpreter=None):
+    """
+    @param interpreter: The interpreter ot use. Defaults to
+      "/lib64/ld-linux-x86-64.so.2", as per the specs.
+    @type interpreter: string
+    """
     object.__init__(self)
     if interpreter:
       self.interpreter = interpreter
@@ -858,10 +885,16 @@ class Interpreter(object):
   logical_size = size
 
   def toBinArray(self):
+    """
+    @return: a L{BinArray} with the content of the pseudo-section.
+    """
     ba = BinArray(self.interpreter)
     ba.append(0)
     return ba
 
   def layout(self):
+    """
+    Unused.
+    """
     pass
 
