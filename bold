@@ -7,11 +7,11 @@
 # This file is part of bold, the Byte Optimized Linker.
 #
 # You can redistribute this file and/or modify it under the terms of the
-# GNU Lesser General Public License as published by the Free Software
-# Foundation, version 2.1.
+# GNU General Public License as published by the Free Software Foundation,
+# either version 3 of the License or (at your option) any later version.
 
 __author__ = "Amand Tihon <amand.tihon@alrj.org>"
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 
 from Bold.linker import BoldLinker
@@ -19,10 +19,11 @@ from Bold.errors import *
 from optparse import OptionParser
 import os, sys
 
+
 class BoldOptionParser(OptionParser):
   """Bold option parser."""
   global __version__
-  _usage_message = "%prog [options] file..."
+  _usage_message = "%prog [options] objfile..."
   _version_message = "%%prog version %s" % __version__
   _description_message = """A limited ELF linker for x86_64. It is
 intended to create very small executables with the least possible overhead."""
@@ -32,7 +33,8 @@ intended to create very small executables with the least possible overhead."""
       version=self._version_message, description=self._description_message,
       add_help_option=True, prog="bold")
 
-    self.set_defaults(entry="_start", outfile="a.out", raw=False, ccall=False)
+    self.set_defaults(entry=None, outfile="a.out", raw=False, ccall=False,
+      align=False)
 
     self.add_option("-e", "--entry", action="store", dest="entry",
       metavar="SYMBOL", help="Set the entry point (default: _start)")
@@ -40,14 +42,21 @@ intended to create very small executables with the least possible overhead."""
     self.add_option("-l", "--library", action="append", dest="shlibs",
       metavar="LIBNAME", help="Search for library LIBNAME")
 
+    self.add_option("-L", "--library-path", action="append", dest="libpath",
+      metavar="DIRECTORY",
+      help="Add DIRECTORY to library search path. (Ignored, for compatibility only.")
+
     self.add_option("-o", "--output", action="store", dest="outfile",
       metavar="FILE", help="Set output file name (default: a.out)")
 
     self.add_option("--raw", action="store_true", dest="raw",
-      help="Don't include the symbol resolution code (default: include it)")
+      help="Don't include the builtin external symbols resolution code")
 
     self.add_option("-c", "--ccall", action="store_true", dest="ccall",
       help="Make external symbol callable by C (default: no)")
+
+    self.add_option("-a", "--align-ccall", action="store_true", dest="align",
+      help="Align C callable symbols with actual functions pointers")
 
 
 def main():
@@ -58,9 +67,34 @@ def main():
     print >>sys.stderr, "No input files"
     return 1
 
+  # Take a copy of args
+  objects = args[:]
+
+  if options.align and not options.ccall:
+    print >>sys.stderr, "Making external symbols callable by C because of -a."
+    options.ccall = True
+
+  if options.ccall and options.raw:
+    # ccall implies that we include the symbol resolution code...
+    print >>sys.stderr, "Including symbol resolution code because of -c."
+    options.raw = False
+
+  if not options.raw:
+    for d in ['.', 'data', '/usr/lib/bold/', '/usr/local/lib/bold']:
+      f = os.path.join(d, 'bold_ibh-x86_64.o')
+      if os.path.isfile(f):
+        objects.append(f)
+        break
+    else:
+      print >>sys.stderr, "Could not find boldsymres-x86_64.o."
+      return 1
+
+
+  # Try reordering objects ?
+
   linker = BoldLinker()
 
-  for infile in args:
+  for infile in objects:
     try:
       linker.add_object(infile)
     except UnsupportedObject, e:
@@ -70,27 +104,6 @@ def main():
       print >>sys.stderr, e
       return 1
 
-  if options.ccall and options.raw:
-    # ccall implies that we include the symbol resolution code...
-    print >>sys.stderr, "Including symbol resolution code because of -c."
-    options.raw = False
-
-  if not options.raw:
-    for d in ['data', '/usr/lib/bold/', '/usr/local/lib/bold', '.']:
-      f = os.path.join(d, 'bold_ibh-x86_64.o')
-      try:
-        linker.add_object(f)
-        break
-      except UnsupportedObject, e:
-        # file was found, but is not recognized
-        print >>sys.stderr, e
-        return 1
-      except IOError, e:
-        # not found, try next directory
-        pass
-    else:
-      print >>sys.stderr, "Could not find boldsymres-x86_64.o."
-      return 1
 
   if options.shlibs:
     for shlib in options.shlibs:
@@ -100,11 +113,15 @@ def main():
         print >>sys.stderr, e
         return 1
 
-  linker.entry_point = options.entry
+  if options.entry is not None:
+    linker.entry_point = options.entry
+  else:
+    if not options.raw:
+      linker.entry_point = "_bold__ibh_start"
 
   try:
     linker.build_symbols_tables()
-    linker.build_external(with_jump=options.ccall)
+    linker.build_external(with_jump=options.ccall, align_jump=options.align)
 
     linker.link()
   except UndefinedSymbol, e:

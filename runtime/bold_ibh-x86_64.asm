@@ -9,6 +9,10 @@
 ; GNU General Public License as published by the Free Software Foundation,
 ; either version 3 of the License or (at your option) any later version.
 
+; Under Section 7 of GPL version 3, you are granted additional
+; permissions described in the Bold Runtime Library Exception, version
+; 1.0, as published by Amand Tihon.
+
 ;------------------------------------------------------------------------------
 ; alrj's x86_64 version of the import by hash method by parapete, las, leblane.
 ; See the wonderful thread at http://www.pouet.net/topic.php?which=5392 to
@@ -36,7 +40,7 @@ extern main                             ; must be declared when using this
 
 segment .text
 
-_bold__ibh:
+_bold__ibh_start:
 ; {{{ Do the RTLD
   mov rbx, [_dt_debug]                  ; rbx points to r_debug
   mov rbx, [rbx + 8]                    ; rbx points to link_map

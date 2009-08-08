@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 # kate: space-indent on; indent-width 2; mixedindent off; indent-mode python;
 
 # Copyright (C) 2009 Amand 'alrj' Tihon <amand.tihon@alrj.org>
@@ -8,8 +7,8 @@
 # Heavily inspired by elf.h from the GNU C Library.
 #
 # You can redistribute this file and/or modify it under the terms of the
-# GNU Lesser General Public License as published by the Free Software
-# Foundation, version 2.1.
+# GNU General Public License as published by the Free Software Foundation,
+# either version 3 of the License or (at your option) any later version.
 
 """This file defines standard ELF constants."""
 
@@ -218,24 +217,3 @@ R_X86_64_TLSLD = Amd64Relocation(20, "TLSLD")
 R_X86_64_DTPOFF32 = Amd64Relocation(21, "DTPOFF32")
 R_X86_64_GOTTPOFF = Amd64Relocation(22, "GOTTPOFF")
 R_X86_64_TPOFF32 = Amd64Relocation(23, "TPOFF32")
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -7,8 +7,8 @@
 # This file is part of bold, the Byte Optimized Linker.
 #
 # You can redistribute this file and/or modify it under the terms of the
-# GNU Lesser General Public License as published by the Free Software
-# Foundation, version 2.1.
+# GNU General Public License as published by the Free Software Foundation,
+# either version 3 of the License or (at your option) any later version.
 
 """Define all the exceptions."""
 
@@ -42,7 +42,7 @@ class UndefinedSymbol(Exception):
     return "Undefined reference to '%s'" % self.symbol
 
 class RedefinedSymbol(Exception):
-  """Raised if a symbol is referenced but not declared."""
+  """Raised if a symbol is defined more than once."""
   def __init__(self, symbol_name):
     self.symbol = symbol_name
   def __str__(self):

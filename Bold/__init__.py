@@ -7,8 +7,8 @@
 # This file is part of bold, the Byte Optimized Linker.
 #
 # You can redistribute this file and/or modify it under the terms of the
-# GNU Lesser General Public License as published by the Free Software
-# Foundation, version 2.1.
+# GNU General Public License as published by the Free Software Foundation,
+# either version 3 of the License or (at your option) any later version.
 
 """
       Empty file in place.

@@ -1,4 +1,3 @@
-#! /usr/bin/python
 # -*- coding: utf-8 -*-
 # kate: space-indent on; indent-width 2; mixedindent off; indent-mode python;
 
@@ -7,8 +6,8 @@
 # This file is part of bold, the Byte Optimized Linker.
 #
 # You can redistribute this file and/or modify it under the terms of the
-# GNU Lesser General Public License as published by the Free Software
-# Foundation, version 2.1.
+# GNU General Public License as published by the Free Software Foundation,
+# either version 3 of the License or (at your option) any later version.
 
 """
 Main entry point for the bold linker.
@@ -22,22 +21,21 @@ from errors import *
 from ctypes.util import find_library
 import struct
 
+
 def hash_name(name):
-  """Caculate the hash of the function name."""
+  """Caculate the hash of the function name.
+  @param name: the string to hash
+  @return: 32 bits hash value.
+  """
   h = 0
   for c in name:
     h = ((h * 0x21) ^ ord(c)) & 0xffffffff
   return h
 
+
 class BoldLinker(object):
   """A Linker object takes one or more objects files, optional shared libs,
   and arranges all this in an executable.
-
-  Important note: the external functions from the libraries are NOT resolved.
-  This import is left to the user, as it can be done more efficiently by hash.
-  (http://www.linuxdemos.org/contentarticle/how_to_start_4k_introdev_with_ibh)
-  For this, a very useful symbol is exported, : _dt_debug, the address of the
-  DT_DEBUG's d_ptr.
   """
 
   def __init__(self):
@@ -50,12 +48,16 @@ class BoldLinker(object):
     self.global_symbols = {}
     self.undefined_symbols = set()
 
+
   def add_object(self, filename):
-    """Add a relocatable file as input."""
+    """Add a relocatable file as input.
+    @param filename: path to relocatable object file to add
+    """
     obj = Elf64(filename)
     obj.resolve_names()
     obj.find_symbols()
     self.objs.append(obj)
+
 
   def build_symbols_tables(self):
     """Find out the globally available symbols, as well as the globally
@@ -83,9 +85,11 @@ class BoldLinker(object):
     self.undefined_symbols.difference_update(self.global_symbols)
 
 
-  def build_external(self, with_jump=False, align_jump=True):
+  def build_external(self, with_jump=False, align_jump=False):
     """
     Generate a fake relocatable object, for dynamic linking.
+    This object is then automatically added in the list of ebjects to link.
+    TODO: This part is extremely non-portable.
     """
 
     # Find out all the undefined symbols. They're the one we'll need to resolve
@@ -163,7 +167,6 @@ class BoldLinker(object):
       class dummy: pass
       rela_shdr = Elf64_Shdr()
       rela_shdr.sh_type = SHT_RELA
-      # rela_shdr.sh_info = fo.shdrs.index(text_shdr)
       rela_shdr.target = text_shdr
       rela_shdr.sh_flags = 0
       rela_shdr._content = dummy() # We only need a container for relatab...
@@ -179,7 +182,6 @@ class BoldLinker(object):
         reloc.symbol = dummy()
         reloc.symbol.st_shndx = SHN_UNDEF
         reloc.symbol.name = "_bold__%s" % i
-        # reloc.symbol.st_value = 0
         relatab.append(reloc)
       fo.shdrs.append(rela_shdr)
       fo.sections['.rela.text'] = rela_shdr
@@ -195,6 +197,7 @@ class BoldLinker(object):
     if not fullname:
       raise LibNotFound(libname)
     self.shlibs.append(fullname)
+
 
   def link(self):
     """Do the actual linking."""
@@ -304,13 +307,6 @@ class BoldLinker(object):
     self.global_symbols["_dt_debug"] = dynamic.dt_debug_address
     self.global_symbols["_DYNAMIC"] = dynamic.virt_addr
 
-    # For now, it's an error. Later, we could try to find them in the shared
-    # libraries.
-    #if len(self.undefined_symbols):
-    #  raise UndefinedSymbol(self.undefined_symbols.pop())
-
-
-
     # We can now do the actual relocation
     for i in self.objs:
       i.apply_relocation(self.global_symbols)
@@ -325,6 +321,7 @@ class BoldLinker(object):
 
   def toBinArray(self):
     return self.output.toBinArray()
+
 
   def tofile(self, file_object):
     return self.output.toBinArray().tofile(file_object)
