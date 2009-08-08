@@ -26,7 +26,7 @@
 BITS 64
 CPU X64
 
-global _bold__ibh
+global _bold__ibh_start
 global exit
 
 extern _dt_debug                        ; defined by bold linker

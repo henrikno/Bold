@@ -80,13 +80,13 @@ def main():
     options.raw = False
 
   if not options.raw:
-    for d in ['.', 'data', '/usr/lib/bold/', '/usr/local/lib/bold']:
+    for d in ['.', 'runtime', '/usr/lib/bold/', '/usr/local/lib/bold']:
       f = os.path.join(d, 'bold_ibh-x86_64.o')
       if os.path.isfile(f):
         objects.append(f)
         break
     else:
-      print >>sys.stderr, "Could not find boldsymres-x86_64.o."
+      print >>sys.stderr, "Could not find bold_ibh-x86_64.o."
       return 1
 
 
