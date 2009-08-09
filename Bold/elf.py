@@ -40,6 +40,7 @@ class Elf64(object):
     self.local_symbols = {}
     self.global_symbols = {}
     self.undefined_symbols = []
+    self.common_symbols = []
 
     if path:
       self.filename = path
@@ -106,6 +107,11 @@ class Elf64(object):
             continue
           if symbol.st_shndx == SHN_ABS:
             continue
+          if symbol.st_shndx == SHN_COMMON:
+            if symbol.name:
+              sym = (symbol.name, symbol.st_size, symbol.st_value)
+              self.common_symbols.append(sym)
+              continue
           if symbol.st_shndx == SHN_UNDEF:
             if symbol.name:
               self.undefined_symbols.append(symbol.name)
@@ -132,8 +138,8 @@ class Elf64(object):
       target = sh.target.content
 
       for reloc in sh.content.relatab:
-        if reloc.symbol.st_shndx == SHN_UNDEF:
-          # This is an extern symbol, find it in all_global_symbols
+        if reloc.symbol.st_shndx in [SHN_UNDEF, SHN_COMMON]:
+          # This is an extern or common symbol, find it in all_global_symbols
           sym_address = all_global_symbols[reloc.symbol.name]
         else:
           # source == in which section it is defined

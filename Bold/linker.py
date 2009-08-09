@@ -47,6 +47,7 @@ class BoldLinker(object):
     self.output = Elf64()
     self.global_symbols = {}
     self.undefined_symbols = set()
+    self.common_symbols = set()
 
 
   def add_object(self, filename):
@@ -63,9 +64,10 @@ class BoldLinker(object):
     """Find out the globally available symbols, as well as the globally
     undefined ones (which should be found in external libraries."""
 
-    # Gather the "extern" symbols from each input files.
+    # Gather the "extern" and common symbols from each input files.
     for i in self.objs:
       self.undefined_symbols.update(i.undefined_symbols)
+      self.common_symbols.update(i.common_symbols)
 
     # Make a dict with all the symbols declared globally.
     # Key is the symbol name, value will later be set to the final
@@ -83,6 +85,14 @@ class BoldLinker(object):
 
     # Find out which symbols aren't really defined anywhere
     self.undefined_symbols.difference_update(self.global_symbols)
+
+    # A symbol declared as COMMON in one object may very well have been
+    # defined in another. In this case, it will be present in the
+    # global_symbols.
+    # Take a copy because we can't change the set's size inside the loop
+    for i in self.common_symbols.copy():
+      if i[0] in self.global_symbols:
+        self.common_symbols.remove(i)
 
 
   def build_external(self, with_jump=False, align_jump=False):
@@ -115,10 +125,17 @@ class BoldLinker(object):
     fo.shdrs.append(data_shdr)
     fo.sections['.data'] = data_shdr
 
+    # .bss will contain pointers to resolved external functions, as well as
+    # the COMMON symbols (from C tentative declaration).
+    bss_size = len(symbols) * 8
+    for s_name, s_size, s_alignment in self.common_symbols:
+      padding = (s_alignment - (bss_size % s_alignment))
+      bss_size += padding + s_size
+
     bss_shdr = Elf64_Shdr()
     bss_shdr.sh_type = SHT_NOBITS
     bss_shdr.sh_flags = (SHF_WRITE | SHF_ALLOC)
-    bss_shdr.sh_size = len(symbols) * 8
+    bss_shdr.sh_size = bss_size
     bss_shdr.content = BinArray("")
     fo.shdrs.append(bss_shdr)
     fo.sections['.bss'] = bss_shdr
@@ -144,6 +161,15 @@ class BoldLinker(object):
     fo.global_symbols['_bold__functions_count'] = (SHN_ABS, len(symbols))
     fo.global_symbols['_bold__functions_hash'] = (data_shdr, 0)
     fo.global_symbols['_bold__functions_pointers'] = (bss_shdr, 0)
+
+    # The COMMON symbols. Assign an offset in .bss, declare as global.
+    bss_common_offset = len(symbols) * 8
+    for s_name, s_size, s_alignment in self.common_symbols:
+      padding = (s_alignment - (bss_common_offset % s_alignment))
+      bss_common_offset += padding
+      fo.global_symbols[s_name] = (bss_shdr, bss_common_offset)
+      bss_common_offset += s_size
+
 
     for n, i in enumerate(symbols):
       # The hash is always in .data
