@@ -152,6 +152,9 @@ class Elf64(object):
         elif reloc.r_type == R_X86_64_32:
           format = "<I" # Direct 32 bit zero extended
           target_value = sym_address + reloc.r_addend
+        elif reloc.r_type == R_X86_64_32S:
+          format = "<i" # Direct 32 bit sign extended
+          target_value = sym_address + reloc.r_addend
         elif reloc.r_type == R_X86_64_PC16:
           format = "<h" # 16 bit sign extended pc relative
           target_value = sym_address + reloc.r_addend - pc_address
