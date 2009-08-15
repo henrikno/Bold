@@ -1,0 +1,16 @@
+bold 0.2.0
+  [ Amand Tihon ]
+  * Add changelog file.
+  * Check external symbols against linked shared libraries.
+
+  [ Jorge Gorbe, Amand Tihon ]
+  * Add support for SHN_COMMON pseudo-section.
+
+ -- Amand Tihon <amand.tihon@alrj.org> Sat, 15 Aug 2009 20:49:36 +0200
+
+bold 0.1.0
+
+  [ Amand Tihon ]
+  * First version released.
+
+ -- Amand Tihon <amand.tihon@alrj.org> Sat, 8 Aug 2009 20:32:00 +0200
