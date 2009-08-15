@@ -18,6 +18,7 @@ from BinArray import BinArray
 from elf import Elf64, Elf64_Phdr, Elf64_Shdr, TextSegment, DataSegment
 from elf import SStrtab, SSymtab, SProgBits, SNobits, Dynamic, Interpreter
 from errors import *
+from ctypes import CDLL
 from ctypes.util import find_library
 import struct
 
@@ -223,6 +224,26 @@ class BoldLinker(object):
     if not fullname:
       raise LibNotFound(libname)
     self.shlibs.append(fullname)
+
+
+  def check_external(self):
+    """Verify that all globally undefined symbols are present in shared
+    libraries."""
+    libs = []
+    for libname in self.shlibs:
+      libs.append(CDLL(libname))
+
+    for symbol in self.undefined_symbols:
+      # Hackish ! Eek!
+      if symbol.startswith('_bold__'):
+        continue
+      found = False
+      for lib in libs:
+        if hasattr(lib, symbol):
+          found = True
+          break
+      if not found:
+        raise UndefinedSymbol(symbol)
 
 
   def link(self):

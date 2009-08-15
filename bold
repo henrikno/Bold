@@ -121,6 +121,9 @@ def main():
 
   try:
     linker.build_symbols_tables()
+
+    linker.check_external()
+
     linker.build_external(with_jump=options.ccall, align_jump=options.align)
 
     linker.link()
