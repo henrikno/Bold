@@ -126,13 +126,6 @@ class BoldLinker(object):
     fo.shdrs.append(data_shdr)
     fo.sections['.data'] = data_shdr
 
-    # .bss will contain pointers to resolved external functions, as well as
-    # the COMMON symbols (from C tentative declaration).
-    bss_size = len(symbols) * 8
-    for s_name, s_size, s_alignment in self.common_symbols:
-      padding = (s_alignment - (bss_size % s_alignment))
-      bss_size += padding + s_size
-
     bss_shdr = Elf64_Shdr()
     bss_shdr.sh_type = SHT_NOBITS
     bss_shdr.sh_flags = (SHF_WRITE | SHF_ALLOC)
@@ -166,11 +159,12 @@ class BoldLinker(object):
     # The COMMON symbols. Assign an offset in .bss, declare as global.
     bss_common_offset = len(symbols) * 8
     for s_name, s_size, s_alignment in self.common_symbols:
-      padding = (s_alignment - (bss_common_offset % s_alignment))
+      padding = (s_alignment - (bss_common_offset % s_alignment)) % s_alignment
       bss_common_offset += padding
       fo.global_symbols[s_name] = (bss_shdr, bss_common_offset)
       bss_common_offset += s_size
 
+    bss_shdr.sh_size = bss_common_offset
 
     for n, i in enumerate(symbols):
       # The hash is always in .data
