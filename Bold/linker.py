@@ -129,7 +129,6 @@ class BoldLinker(object):
     bss_shdr = Elf64_Shdr()
     bss_shdr.sh_type = SHT_NOBITS
     bss_shdr.sh_flags = (SHF_WRITE | SHF_ALLOC)
-    bss_shdr.sh_size = bss_size
     bss_shdr.content = BinArray("")
     fo.shdrs.append(bss_shdr)
     fo.sections['.bss'] = bss_shdr
