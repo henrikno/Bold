@@ -1,3 +1,7 @@
+bold 0.2.2
+  [ Amand Tihon ]
+  * Reduce symbol resolution code size.
+
 bold 0.2.1
   [ Amand Tihon ]
   * Correct a "oh so stupid" bug.

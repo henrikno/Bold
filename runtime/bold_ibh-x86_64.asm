@@ -19,8 +19,7 @@
 ; learn everything about import by hash on Linux.
 
 ; Compile with
-; yasm -f elf64 -o bold_ibh-x86_64.o bold_ibh-x86_64.asm
-; (or replace yasm by nasm)
+; nasm -f elf64 -o bold_ibh-x86_64.o bold_ibh-x86_64.asm
 
 
 BITS 64
@@ -42,50 +41,50 @@ segment .text
 
 _bold__ibh_start:
 ; {{{ Do the RTLD
-  mov rbx, [_dt_debug]                  ; rbx points to r_debug
-  mov rbx, [rbx + 8]                    ; rbx points to link_map
-  mov rbx, [rbx + 24]                   ; skip the first two link_map entries
-  mov rbx, [rbx + 24]
+  mov r14, [rel _dt_debug]              ; r14 points to r_debug
+  mov r14, [r14 + 8]                    ; r14 points to link_map
+  mov r14, [r14 + 24]                   ; skip the first two link_map entries
+  mov r14, [r14 + 24]
 
   mov esi, _bold__functions_hash        ; Implicitly zero-extended
   mov edi, _bold__functions_pointers    ; ditto
-  mov ecx, _bold__functions_count
+  push byte _bold__functions_count      ; Warning: Max 127 external symbols.
+  pop rcx                               ;  Linker should enforce this.
 
   ; Load all the symbols
   .symbol_loop:
-    lodsd                               ; Load symbol hash in eax
+    lodsd                                 ; Load symbol hash
+    xchg ebx, eax                         ; into ebx
     push rsi
     push rcx
 
 ;   {{{ For each hash
-    mov r15d, eax                         ; Save function hash
-    mov r13, rbx                          ; copy link_map's pseudo-head
 
     ; Iterate over libraries found in link_map
     .libloop:
-      mov rdx, [r13 + 16]                 ; link_map->l_ld
+      mov rdx, [r14 + 16]                 ; link_map->l_ld
 
       ; Find the interesting entries in the DYNAMIC table.
       .dynamic_loop:
-        xor eax, eax                      ; enough because hash was 32 bits
 
-        mov al, DT_HASH                   ; DT_HASH == 4
-        cmp [rdx], rax
+        push byte DT_HASH                 ; DT_HASH == 4
+        pop rax
+        cmp [rdx], eax
         cmove r9, [rdx+8]                 ; r9 : pointer to the hash table
 
-        inc al                            ; DT_STRTAB == 5
-        cmp [rdx], rax
+        inc eax                           ; DT_STRTAB == 5
+        cmp [rdx], eax
         cmove r10, [rdx+8]                ; r10 : pointer to strtab
 
-        inc al                            ; DT_SYMTAB == 6
-        cmp [rdx], rax
+        inc eax                           ; DT_SYMTAB == 6
+        cmp [rdx], eax
         cmove r11, [rdx+8]                ; r11 : pointer to symtab
 
         ; Next dynamic entry
-        add rdx, 16
-        xor al, al
-        cmp [rdx], rax
-        jnz .dynamic_loop
+        lea rdx, [rdx + 16]               ; add rdx, 16
+        xor eax, eax
+        cmp [rdx], eax
+        jnz short .dynamic_loop
 
       ; All DYNAMIC entries have been read.
       mov ecx, [r9 + 4]                   ; nchain, number of exported symbols
@@ -107,30 +106,34 @@ _bold__ibh_start:
           jnz short .hash_loop
 
         .hash_end:
-        cmp edx, r15d                     ; Compare with stored hash
-        je .found
-        add r11, 24                       ; Next symtab entry
+        cmp edx, ebx                      ; Compare with stored hash
+        je short .found
+        lea r11, [r11 + 24]               ; Next symtab entry
       loop .symbolloop
 
       ; Symbol was not found in this library
-      mov r13, [r13 + 24]                 ; Next link_map entry
+      mov r14, [r14 + 24]                 ; Next link_map entry
       jmp short .libloop
     .found:
     mov rax, [r11 + 8]                    ; st_value, offset of the symbol
-    add rax, [r13]                        ; add link_map->l_addr
+    add rax, [r14]                        ; add link_map->l_addr
+    stosq                                 ; Store function pointer
 ;   }}}
 
     pop rcx
     pop rsi
-    stosq                               ; Store function pointer
     loop .symbol_loop
 ; }}}
 
   ; When all is resolved, call main()
   call main
-  mov edi, eax
+  xchg edi, eax
 
 exit:
   ; Exit cleanly
-  mov eax, SYS_exit
+  push byte SYS_exit
+  pop rax
   syscall
+
+%assign code_size $ - _bold__ibh_start
+%warning "Code size is:" code_size
