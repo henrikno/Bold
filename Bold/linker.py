@@ -108,9 +108,12 @@ class BoldLinker(object):
     symbols = sorted(list(self.undefined_symbols))
 
     # Those three will soon be known...
-    symbols.remove('_bold__functions_count')
-    symbols.remove('_bold__functions_hash')
-    symbols.remove('_bold__functions_pointers')
+    if '_bold__functions_count' in symbols:
+      symbols.remove('_bold__functions_count')
+    if '_bold__functions_hash' in symbols:
+      symbols.remove('_bold__functions_hash')
+    if '_bold__functions_pointers' in symbols:
+      symbols.remove('_bold__functions_pointers')
 
     # Create the fake ELF object.
     fo = Elf64() # Don't care about most parts of ELF header (?)

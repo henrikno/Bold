@@ -1,6 +1,8 @@
 bold 0.2.2
   [ Amand Tihon ]
   * Reduce symbol resolution code size.
+  * Don't try to remove internal symbols from the list if they weren't
+    generated in the first place.
 
 bold 0.2.1
   [ Amand Tihon ]
