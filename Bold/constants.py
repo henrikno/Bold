@@ -217,3 +217,18 @@ R_X86_64_TLSLD = Amd64Relocation(20, "TLSLD")
 R_X86_64_DTPOFF32 = Amd64Relocation(21, "DTPOFF32")
 R_X86_64_GOTTPOFF = Amd64Relocation(22, "GOTTPOFF")
 R_X86_64_TPOFF32 = Amd64Relocation(23, "TPOFF32")
+
+class Intel386Relocation(SymbolicConstant):
+  _symbolics = {}
+
+R_386_NONE = Intel386Relocation(0, "NONE")
+R_386_32 = Intel386Relocation(1, "32") #  word32  S + A
+R_386_PC32 = Intel386Relocation(2, "PC32") # word32  S + A - P
+R_386_GOT32 = Intel386Relocation(3, "GOT32") # word32  G + A - P
+R_386_PLT32 = Intel386Relocation(4, "PLT32") # word32  L + A - P
+R_386_COPY = Intel386Relocation(5, "COPY") # none    none
+R_386_GLOB_DAT = Intel386Relocation(6, "GLOB_DAT") # word32  S
+R_386_JMP_SLOT = Intel386Relocation(7, "JMP_SLOT")  # word32  S
+R_386_RELATIVE = Intel386Relocation(8, "RELATIVE") # word32  B + A
+R_386_GOTOFF  = Intel386Relocation(9, "GOTOFF") # word32  S + A - GOT
+R_386_GOTPC = Intel386Relocation(10, "GOTPC") # word32  GOT + A - P
